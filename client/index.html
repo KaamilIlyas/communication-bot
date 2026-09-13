@@ -12,6 +12,22 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      window.addEventListener('error', function(e) {
+        console.error('CRITICAL WINDOW ERROR:', e);
+        var div = document.createElement('div');
+        div.style = 'position:fixed;inset:0;background:#0f172a;color:#ef4444;padding:24px;font-family:monospace;white-space:pre-wrap;z-index:999999;overflow:auto;';
+        div.innerHTML = '<h2>Application Runtime Error</h2><p>' + (e.error ? (e.error.stack || e.error.message) : e.message) + '</p>';
+        document.body.appendChild(div);
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        console.error('CRITICAL UNHANDLED REJECTION:', e);
+        var div = document.createElement('div');
+        div.style = 'position:fixed;inset:0;background:#0f172a;color:#ef4444;padding:24px;font-family:monospace;white-space:pre-wrap;z-index:999999;overflow:auto;';
+        div.innerHTML = '<h2>Unhandled Promise Rejection</h2><p>' + (e.reason ? (e.reason.stack || e.reason.message || e.reason) : 'Promise rejected') + '</p>';
+        document.body.appendChild(div);
+      });
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

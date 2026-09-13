@@ -51,6 +51,64 @@ export default function App() {
 
   const wsStatusRef = useRef('disconnected');
   const sendMessageRef = useRef(null);
+  const speakTextRef = useRef(null);
+  const startRecordingRef = useRef(null);
+  const handleAudioReadyRef = useRef(null);
+
+  // Called when all queued audio chunks have completely finished playing
+  const handlePlaybackEnded = useCallback(() => {
+    if (pendingResponseRef.current) {
+      const resp = pendingResponseRef.current;
+      pendingResponseRef.current = null;
+      setStreamingText('');
+
+      const assistantMsg = {
+        role: 'assistant',
+        content: resp.fullText,
+        spokenText: resp.spokenText,
+        timestamp: Date.now()
+      };
+
+      setMessages((prev) => [...prev, assistantMsg]);
+    }
+
+    if (isCallActiveRef.current && llmDoneRef.current) {
+      if (rearmTimerRef.current) clearTimeout(rearmTimerRef.current);
+      rearmTimerRef.current = setTimeout(() => {
+        if (isCallActiveRef.current && startRecordingRef.current) {
+          startRecordingRef.current();
+        }
+      }, 600);
+    }
+  }, []);
+
+  const { isPlaying, enqueueAudio, speakText, stopPlayback, analyserNode: playerAnalyser } = useAudioPlayer({
+    onPlaybackEnded: handlePlaybackEnded
+  });
+
+  useEffect(() => {
+    speakTextRef.current = speakText;
+  }, [speakText]);
+
+  const {
+    isRecording,
+    analyserNode: micAnalyser,
+    error: micError,
+    startRecording,
+    stopRecording
+  } = useAudioRecorder({
+    onAudioReady: (blob) => {
+      if (handleAudioReadyRef.current) {
+        handleAudioReadyRef.current(blob);
+      }
+    },
+    silenceTimeoutMs: silenceTimeout,
+    autoSendOnSilence: autoSend
+  });
+
+  useEffect(() => {
+    startRecordingRef.current = startRecording;
+  }, [startRecording]);
 
   // Serverless HTTP turn (used when deployed on Vercel or disconnected from local WS)
   const handleServerlessTurn = useCallback(async (userText) => {
@@ -126,23 +184,27 @@ export default function App() {
       setMessages((prev) => [...prev, assistantMsg]);
 
       // Speak text using browser native speech synthesis
-      speakText(fullAssistantText, {
-        speed,
-        onEnd: () => {
-          if (isCallActiveRef.current) {
-            setTimeout(() => {
-              if (isCallActiveRef.current) startRecording();
-            }, 600);
+      if (speakTextRef.current) {
+        speakTextRef.current(fullAssistantText, {
+          speed,
+          onEnd: () => {
+            if (isCallActiveRef.current && startRecordingRef.current) {
+              setTimeout(() => {
+                if (isCallActiveRef.current && startRecordingRef.current) {
+                  startRecordingRef.current();
+                }
+              }, 600);
+            }
           }
-        }
-      });
+        });
+      }
     } catch (err) {
       console.error('[Serverless Turn] error:', err);
       setLlmStatus('idle');
       setErrorBanner(err.message);
       setTimeout(() => setErrorBanner(null), 6000);
     }
-  }, [messages, mode, modeScenarios, openrouterKey, speakText, speed, startRecording]);
+  }, [messages, mode, modeScenarios, openrouterKey, speed]);
 
   // Audio recording callback (WAV blob -> Base64 -> WS or Vercel Serverless HTTP)
   const handleAudioReady = useCallback(async (audioBlob) => {
@@ -179,8 +241,12 @@ export default function App() {
             if (data.error) setErrorBanner(data.error);
             else setErrorBanner('No speech detected. Please speak into your microphone.');
             setTimeout(() => setErrorBanner(null), 4000);
-            if (isCallActiveRef.current) {
-              setTimeout(() => { if (isCallActiveRef.current) startRecording(); }, 800);
+            if (isCallActiveRef.current && startRecordingRef.current) {
+              setTimeout(() => { 
+                if (isCallActiveRef.current && startRecordingRef.current) {
+                  startRecordingRef.current();
+                }
+              }, 800);
             }
             return;
           }
@@ -194,58 +260,11 @@ export default function App() {
       }
     };
     reader.readAsDataURL(audioBlob);
-  }, [mode, modeScenarios, selectedVoice, speed, handleServerlessTurn, startRecording]);
+  }, [mode, modeScenarios, selectedVoice, speed, handleServerlessTurn]);
 
-  const {
-    isRecording,
-    analyserNode: micAnalyser,
-    error: micError,
-    startRecording,
-    stopRecording
-  } = useAudioRecorder({
-    onAudioReady: handleAudioReady,
-    silenceTimeoutMs: silenceTimeout,
-    autoSendOnSilence: autoSend
-  });
-
-  // Called when each audio chunk starts playing — no longer needs to update streaming text
-  // because llm_chunk now streams text directly to the UI in real-time
-  const handleChunkStarted = useCallback((_meta) => {
-    // intentionally left empty; streaming text is updated via llm_chunk
-  }, []);
-
-  // Called when all queued audio chunks have completely finished playing
-  const handlePlaybackEnded = useCallback(() => {
-    // If we have a pending LLM response, finalize it into message history
-    if (pendingResponseRef.current) {
-      const resp = pendingResponseRef.current;
-      pendingResponseRef.current = null;
-      setStreamingText('');
-
-      const assistantMsg = {
-        role: 'assistant',
-        content: resp.fullText,
-        spokenText: resp.spokenText,
-        timestamp: Date.now()
-      };
-
-      setMessages((prev) => [...prev, assistantMsg]);
-    }
-
-    if (isCallActiveRef.current && llmDoneRef.current) {
-      if (rearmTimerRef.current) clearTimeout(rearmTimerRef.current);
-      rearmTimerRef.current = setTimeout(() => {
-        if (isCallActiveRef.current) {
-          startRecording();
-        }
-      }, 600);
-    }
-  }, [startRecording]);
-
-  const { isPlaying, enqueueAudio, speakText, stopPlayback, analyserNode: playerAnalyser } = useAudioPlayer({
-    onPlaybackEnded: handlePlaybackEnded,
-    onChunkStarted: handleChunkStarted
-  });
+  useEffect(() => {
+    handleAudioReadyRef.current = handleAudioReady;
+  }, [handleAudioReady]);
 
   // Handle incoming WebSocket messages
   const handleWsMessage = useCallback((data) => {
