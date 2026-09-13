@@ -239,8 +239,22 @@ async function handleClientMessage(ws, session, message) {
       const format = message.format || 'webm';
       const sttResult = await whisperService.transcribeAudioBuffer(audioBuffer, format);
 
-      if (!sttResult.text || !sttResult.text.trim()) {
-        send({ type: 'stt_empty', message: 'No clear speech detected. Please speak into the mic.' });
+      const rawText = (sttResult.text || '').trim();
+      const normalized = rawText.toLowerCase().replace(/[.,!?;:'"«»]/g, '').trim();
+
+      const NOISE_HALLUCINATIONS = new Set([
+        'thank you',
+        'thank you for watching',
+        'thank you very much',
+        'subtitles by',
+        'how is the battery in the uk',
+        'bye',
+        'you',
+        ''
+      ]);
+
+      if (!rawText || NOISE_HALLUCINATIONS.has(normalized)) {
+        send({ type: 'stt_empty', message: 'No clear speech detected.' });
         return;
       }
 

@@ -71,7 +71,8 @@ def main():
                 audio_path,
                 language=language,
                 beam_size=1,
-                vad_filter=False
+                vad_filter=True,
+                vad_parameters=dict(min_silence_duration_ms=500)
             )
             text_segments = [s.text.strip() for s in segments if s.text.strip()]
             full_text = " ".join(text_segments).strip()

@@ -119,6 +119,12 @@ export default function App() {
         handleAudioReadyRef.current(blob);
       }
     },
+    onNoSpeech: () => {
+      console.log('[App] Silence detected without speech. Stopping listening.');
+      setIsCallActive(false);
+      isCallActiveRef.current = false;
+      setSttStatus('idle');
+    },
     silenceTimeoutMs: silenceTimeout
   });
 
@@ -281,15 +287,10 @@ export default function App() {
 
           if (!res.ok || !data.text || !data.text.trim()) {
             if (data.error) setErrorBanner(data.error);
-            else setErrorBanner('No speech detected. Please speak into your microphone.');
-            setTimeout(() => setErrorBanner(null), 4000);
-            if (isCallActiveRef.current && startRecordingRef.current) {
-              setTimeout(() => { 
-                if (isCallActiveRef.current && startRecordingRef.current) {
-                  startRecordingRef.current();
-                }
-              }, 800);
-            }
+            else setErrorBanner('No speech detected.');
+            setTimeout(() => setErrorBanner(null), 3000);
+            setIsCallActive(false);
+            isCallActiveRef.current = false;
             return;
           }
 
@@ -372,13 +373,10 @@ export default function App() {
 
       case 'stt_empty': {
         setSttStatus('idle');
+        setIsCallActive(false);
+        isCallActiveRef.current = false;
         setErrorBanner(data.message || 'No speech detected.');
-        setTimeout(() => setErrorBanner(null), 4000);
-        if (isCallActiveRef.current) {
-          setTimeout(() => {
-            if (isCallActiveRef.current) startRecording();
-          }, 800);
-        }
+        setTimeout(() => setErrorBanner(null), 3000);
         break;
       }
 
