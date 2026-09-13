@@ -1,3 +1,15 @@
+---
+title: Fluentai Backend
+emoji: 🎙️
+colorFrom: blue
+colorTo: purple
+sdk: gradio
+sdk_version: 6.27.0
+app_file: app.py
+pinned: false
+license: mit
+---
+
 # 🎙️ Local Real-Time Spoken English Voice AI
 
 A fast, real-time voice-to-voice conversational AI partner and English speaking coach. Runs **100% locally and privately** on your machine with zero cloud API costs.
