@@ -49,27 +49,152 @@ export default function App() {
 
   const currentActiveScenario = modeScenarios[mode] || '';
 
-  // Audio recording callback (WAV blob -> Base64 -> WS)
-  const handleAudioReady = useCallback((audioBlob) => {
+  const wsStatusRef = useRef('disconnected');
+  const sendMessageRef = useRef(null);
+
+  // Serverless HTTP turn (used when deployed on Vercel or disconnected from local WS)
+  const handleServerlessTurn = useCallback(async (userText) => {
+    if (!userText || !userText.trim()) return;
+
+    const userMsg = {
+      role: 'user',
+      content: userText.trim(),
+      timestamp: Date.now()
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setLlmStatus('streaming');
+    setStreamingText('');
+
+    const conversationHistory = [...messages, userMsg].map(m => ({
+      role: m.role,
+      content: m.content
+    })).slice(-12);
+
+    try {
+      const chatRes = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: conversationHistory,
+          mode,
+          role: modeScenarios.interview,
+          scenario: modeScenarios[mode] || '',
+          customApiKey: openrouterKey || undefined
+        })
+      });
+
+      if (!chatRes.ok) {
+        const errJson = await chatRes.json().catch(() => ({}));
+        throw new Error(errJson.error || `Chat request failed (${chatRes.status})`);
+      }
+
+      const reader = chatRes.body.getReader();
+      const decoder = new TextDecoder();
+      let fullAssistantText = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n').filter(l => l.trim().length > 0);
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const raw = line.slice(6).trim();
+            if (raw === '[DONE]') break;
+            try {
+              const parsed = JSON.parse(raw);
+              if (parsed.token) {
+                fullAssistantText += parsed.token;
+                setStreamingText(fullAssistantText);
+              }
+            } catch (e) {}
+          }
+        }
+      }
+
+      setLlmStatus('idle');
+      setStreamingText('');
+
+      const assistantMsg = {
+        role: 'assistant',
+        content: fullAssistantText,
+        spokenText: fullAssistantText,
+        timestamp: Date.now()
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
+
+      // Speak text using browser native speech synthesis
+      speakText(fullAssistantText, {
+        speed,
+        onEnd: () => {
+          if (isCallActiveRef.current) {
+            setTimeout(() => {
+              if (isCallActiveRef.current) startRecording();
+            }, 600);
+          }
+        }
+      });
+    } catch (err) {
+      console.error('[Serverless Turn] error:', err);
+      setLlmStatus('idle');
+      setErrorBanner(err.message);
+      setTimeout(() => setErrorBanner(null), 6000);
+    }
+  }, [messages, mode, modeScenarios, openrouterKey, speakText, speed, startRecording]);
+
+  // Audio recording callback (WAV blob -> Base64 -> WS or Vercel Serverless HTTP)
+  const handleAudioReady = useCallback(async (audioBlob) => {
     const reader = new FileReader();
-    reader.onloadend = () => {
+    reader.onloadend = async () => {
       const base64Audio = reader.result.split(',')[1];
       setSttStatus('transcribing');
       llmDoneRef.current = false;
 
-      sendMessage({
-        type: 'audio_data',
-        audio: base64Audio,
-        format: 'wav',
-        mode,
-        role: modeScenarios.interview,
-        scenario: modeScenarios[mode] || '',
-        voice: selectedVoice,
-        speed: speed
-      });
+      if (wsStatusRef.current === 'connected' && sendMessageRef.current) {
+        sendMessageRef.current({
+          type: 'audio_data',
+          audio: base64Audio,
+          format: 'wav',
+          mode,
+          role: modeScenarios.interview,
+          scenario: modeScenarios[mode] || '',
+          voice: selectedVoice,
+          speed: speed
+        });
+      } else {
+        // Serverless HTTP Mode on Vercel
+        try {
+          const res = await fetch('/api/transcribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ audio: base64Audio, format: 'wav' })
+          });
+
+          const data = await res.json();
+          setSttStatus('idle');
+
+          if (!res.ok || !data.text || !data.text.trim()) {
+            if (data.error) setErrorBanner(data.error);
+            else setErrorBanner('No speech detected. Please speak into your microphone.');
+            setTimeout(() => setErrorBanner(null), 4000);
+            if (isCallActiveRef.current) {
+              setTimeout(() => { if (isCallActiveRef.current) startRecording(); }, 800);
+            }
+            return;
+          }
+
+          await handleServerlessTurn(data.text.trim());
+        } catch (sttErr) {
+          setSttStatus('idle');
+          setErrorBanner(`Transcription failed: ${sttErr.message}`);
+          setTimeout(() => setErrorBanner(null), 5000);
+        }
+      }
     };
     reader.readAsDataURL(audioBlob);
-  }, [mode, modeScenarios, selectedVoice, speed]);
+  }, [mode, modeScenarios, selectedVoice, speed, handleServerlessTurn, startRecording]);
 
   const {
     isRecording,
@@ -117,7 +242,7 @@ export default function App() {
     }
   }, [startRecording]);
 
-  const { isPlaying, enqueueAudio, stopPlayback, analyserNode: playerAnalyser } = useAudioPlayer({
+  const { isPlaying, enqueueAudio, speakText, stopPlayback, analyserNode: playerAnalyser } = useAudioPlayer({
     onPlaybackEnded: handlePlaybackEnded,
     onChunkStarted: handleChunkStarted
   });
@@ -261,6 +386,11 @@ export default function App() {
   });
 
   useEffect(() => {
+    wsStatusRef.current = wsStatus;
+    sendMessageRef.current = sendMessage;
+  }, [wsStatus, sendMessage]);
+
+  useEffect(() => {
     if (wsStatus === 'connected') {
       setErrorBanner(null);
       const storedKey = localStorage.getItem('openrouter_api_key');
@@ -379,7 +509,11 @@ export default function App() {
     setIsCallActive(false);
     stopPlayback();
     stopRecording();
-    sendMessage({ type: 'interrupt' });
+    setLlmStatus('idle');
+    setStreamingText('');
+    if (wsStatus === 'connected') {
+      sendMessage({ type: 'interrupt' });
+    }
   };
 
   const handleClearHistory = () => {
@@ -387,21 +521,29 @@ export default function App() {
     setIsCallActive(false);
     stopPlayback();
     stopRecording();
-    sendMessage({ type: 'clear_history' });
+    setMessages([]);
+    setStreamingText('');
+    if (wsStatus === 'connected') {
+      sendMessage({ type: 'clear_history' });
+    }
   };
 
   const handleSendText = (text) => {
     if (!text.trim()) return;
     llmDoneRef.current = false;
-    sendMessage({
-      type: 'text_message',
-      text: text.trim(),
-      mode,
-      role: modeScenarios.interview,
-      scenario: modeScenarios[mode] || '',
-      voice: selectedVoice,
-      speed: speed
-    });
+    if (wsStatus === 'connected') {
+      sendMessage({
+        type: 'text_message',
+        text: text.trim(),
+        mode,
+        role: modeScenarios.interview,
+        scenario: modeScenarios[mode] || '',
+        voice: selectedVoice,
+        speed: speed
+      });
+    } else {
+      handleServerlessTurn(text.trim());
+    }
   };
 
   const handleReplayMessage = (text) => {

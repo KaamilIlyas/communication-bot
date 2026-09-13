@@ -114,7 +114,52 @@ export function useAudioPlayer({ onPlaybackEnded } = {}) {
     processRawQueue();
   }, [processRawQueue]);
 
+  const speakText = useCallback((text, { speed = 1.0, onEnd } = {}) => {
+    if (!text || typeof window === 'undefined' || !window.speechSynthesis) return;
+
+    window.speechSynthesis.cancel();
+    const cleanText = text
+      .replace(/\[CORRECTION:.*?\]/gi, '')
+      .replace(/[*#`_~]/g, '')
+      .replace(/<[^>]*>/g, '')
+      .trim();
+
+    if (!cleanText) return;
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.rate = Math.max(0.7, Math.min(1.5, speed));
+    utterance.lang = 'en-US';
+
+    const voices = window.speechSynthesis.getVoices();
+    const bestVoice = voices.find(v => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Samantha') || v.name.includes('Google') || v.name.includes('Daniel') || v.name.includes('Karen'))) ||
+                      voices.find(v => v.lang.startsWith('en'));
+    if (bestVoice) utterance.voice = bestVoice;
+
+    isPlayingRef.current = true;
+    setIsPlaying(true);
+
+    utterance.onend = () => {
+      isPlayingRef.current = false;
+      setIsPlaying(false);
+      if (onEnd) onEnd();
+      else if (onPlaybackEndedRef.current) onPlaybackEndedRef.current();
+    };
+
+    utterance.onerror = (e) => {
+      console.warn('[SpeechSynthesis] error:', e);
+      isPlayingRef.current = false;
+      setIsPlaying(false);
+      if (onEnd) onEnd();
+      else if (onPlaybackEndedRef.current) onPlaybackEndedRef.current();
+    };
+
+    window.speechSynthesis.speak(utterance);
+  }, []);
+
   const stopPlayback = useCallback(() => {
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
     rawQueueRef.current = [];
     decodedQueueRef.current = [];
     if (currentSourceRef.current) {
@@ -140,6 +185,7 @@ export function useAudioPlayer({ onPlaybackEnded } = {}) {
   return {
     isPlaying,
     enqueueAudio,
+    speakText,
     stopPlayback,
     analyserNode: analyserRef.current,
     getAudioContext
