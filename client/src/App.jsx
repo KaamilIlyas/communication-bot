@@ -12,12 +12,12 @@ import { useAudioRecorder } from './hooks/useAudioRecorder';
 import { useAudioPlayer } from './hooks/useAudioPlayer';
 
 const DEFAULT_VOICES = [
+  { id: 'af_sarah', name: 'Sarah (Studio Voice)', gender: 'Female' },
   { id: 'af_heart', name: 'Heart (Warm & Natural)', gender: 'Female' },
   { id: 'am_adam', name: 'Adam (Conversational)', gender: 'Male' },
   { id: 'af_bella', name: 'Bella (Expressive)', gender: 'Female' },
   { id: 'bm_george', name: 'George (British RP)', gender: 'Male' },
   { id: 'bf_emma', name: 'Emma (British BBC)', gender: 'Female' },
-  { id: 'af_sarah', name: 'Sarah (Studio Voice)', gender: 'Female' },
   { id: 'am_michael', name: 'Michael (Deep Voice)', gender: 'Male' }
 ];
 
@@ -36,10 +36,13 @@ export default function App() {
   const [isModeModalOpen, setIsModeModalOpen] = useState(false);
 
   const [autoSend, setAutoSend] = useState(true);
-  const [silenceTimeout, setSilenceTimeout] = useState(3000);
+  const [silenceTimeout, setSilenceTimeout] = useState(() => {
+    const saved = localStorage.getItem('silence_timeout');
+    return saved ? parseInt(saved, 10) : 2000;
+  });
   const [isCallActive, setIsCallActive] = useState(false);
   const [speed, setSpeed] = useState(1.0);
-  const [selectedVoice, setSelectedVoice] = useState(() => localStorage.getItem('selected_voice') || 'af_heart');
+  const [selectedVoice, setSelectedVoice] = useState(() => localStorage.getItem('selected_voice') || 'af_sarah');
   const [availableVoices, setAvailableVoices] = useState(DEFAULT_VOICES);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
@@ -703,7 +706,10 @@ export default function App() {
           sendMessage({ type: 'set_settings', speed: s });
         }}
         silenceTimeout={silenceTimeout}
-        onChangeSilenceTimeout={setSilenceTimeout}
+        onChangeSilenceTimeout={(to) => {
+          setSilenceTimeout(to);
+          localStorage.setItem('silence_timeout', to);
+        }}
         llmProvider={llmProvider}
         onChangeLlmProvider={handleChangeLlmProvider}
         openrouterKey={openrouterKey}

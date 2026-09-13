@@ -30,7 +30,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { text, voice = 'af_heart', speed = 1.0 } = req.body || {};
+    const { text, voice = 'af_sarah', speed = 1.0 } = req.body || {};
 
     if (!text || typeof text !== 'string' || !text.trim()) {
       return res.status(400).json({ error: 'Missing or empty text parameter.' });

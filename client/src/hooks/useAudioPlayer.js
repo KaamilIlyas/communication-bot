@@ -136,7 +136,7 @@ export function useAudioPlayer({ onPlaybackEnded } = {}) {
     };
   }, []);
 
-  const speakText = useCallback((text, { speed = 1.0, voice = 'af_heart', onEnd } = {}) => {
+  const speakText = useCallback((text, { speed = 1.0, voice = 'af_sarah', onEnd } = {}) => {
     if (!text || typeof window === 'undefined' || !window.speechSynthesis) return;
 
     window.speechSynthesis.cancel();

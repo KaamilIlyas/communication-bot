@@ -24,14 +24,14 @@ export const CONFIG = {
   piper: {
     binaryPath: path.join(rootDir, 'venv', 'bin', 'piper'),
     modelsDir: path.join(rootDir, 'models', 'piper'),
-    defaultVoice: 'af_heart',
+    defaultVoice: 'af_sarah',
     availableVoices: [
+      { id: 'af_sarah', name: 'Sarah (Studio Voice)', gender: 'Female' },
       { id: 'af_heart', name: 'Heart (Warm & Natural)', gender: 'Female' },
       { id: 'am_adam', name: 'Adam (Conversational)', gender: 'Male' },
       { id: 'af_bella', name: 'Bella (Expressive)', gender: 'Female' },
       { id: 'bm_george', name: 'George (British)', gender: 'Male' },
       { id: 'bf_emma', name: 'Emma (British)', gender: 'Female' },
-      { id: 'af_sarah', name: 'Sarah (Studio Voice)', gender: 'Female' },
       { id: 'am_michael', name: 'Michael (Deep Voice)', gender: 'Male' }
     ]
   },

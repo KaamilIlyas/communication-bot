@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { encodeWAV } from '../utils/wavEncoder';
 
-export function useAudioRecorder({ onAudioReady, silenceTimeoutMs = 3000, autoSendOnSilence = true }) {
+export function useAudioRecorder({ onAudioReady, silenceTimeoutMs = 2000, autoSendOnSilence = true }) {
   const [isRecording, setIsRecording] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);

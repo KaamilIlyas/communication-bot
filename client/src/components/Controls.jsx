@@ -27,62 +27,61 @@ export function Controls({
 
   return (
     <footer className="controls-bar" aria-label="Conversation controls">
-      {/* Voice actions container */}
-      <div className="controls-voice-group">
-        <div className="controls-left">
+      {/* Left zone: Reset/Clear actions */}
+      <div className="controls-left">
+        <button 
+          id="clear-history-btn"
+          className="icon-btn" 
+          onClick={onClearHistory}
+          title="Reset conversation history"
+          type="button"
+          aria-label="Reset conversation"
+        >
+          <RotateCcw size={16} />
+        </button>
+      </div>
+
+      {/* Center zone: Speak & Hands-Free actions (Dead centered) */}
+      <div className="controls-center">
+        {isPlaying && (
           <button 
-            id="clear-history-btn"
-            className="icon-btn" 
-            onClick={onClearHistory}
-            title="Reset conversation history"
+            id="interrupt-ai-btn"
+            className="interrupt-btn" 
+            onClick={onInterrupt}
+            title="Stop AI speech"
             type="button"
-            aria-label="Reset conversation"
           >
-            <RotateCcw size={16} />
+            <Square size={12} fill="currentColor" />
+            <span>Stop</span>
           </button>
-        </div>
+        )}
 
-        <div className="controls-center">
-          {isPlaying && (
-            <button 
-              id="interrupt-ai-btn"
-              className="interrupt-btn" 
-              onClick={onInterrupt}
-              title="Stop AI speech"
-              type="button"
-            >
-              <Square size={12} fill="currentColor" />
-              <span>Stop</span>
-            </button>
-          )}
+        <button
+          id="main-mic-btn"
+          className={`mic-button ${isRecording ? 'recording' : ''}`}
+          onClick={handleToggle}
+          type="button"
+          title={isRecording ? 'Click to stop speaking' : 'Click to start speaking'}
+          aria-label={isRecording ? 'Stop microphone' : 'Start microphone'}
+        >
+          <Mic size={22} />
+        </button>
 
-          <button
-            id="main-mic-btn"
-            className={`mic-button ${isRecording ? 'recording' : ''}`}
-            onClick={handleToggle}
-            type="button"
-            title={isRecording ? 'Click to stop speaking' : 'Click to start speaking'}
-            aria-label={isRecording ? 'Stop microphone' : 'Start microphone'}
-          >
-            <Mic size={22} />
-          </button>
-
-          <button 
-            id="auto-send-toggle-btn"
-            className={`icon-btn ${autoSend ? 'active' : ''}`}
-            onClick={onToggleAutoSend}
-            type="button"
-            style={{ 
-              color: autoSend ? 'var(--accent-emerald)' : 'var(--text-muted)',
-              borderColor: autoSend ? 'rgba(16, 185, 129, 0.4)' : 'var(--border-subtle)',
-              background: autoSend ? 'var(--accent-emerald-subtle)' : 'var(--bg-surface-subtle)'
-            }}
-            title={autoSend ? 'Hands-Free VAD: ON' : 'Hands-Free VAD: OFF'}
-            aria-label="Toggle hands-free mode"
-          >
-            <Radio size={16} />
-          </button>
-        </div>
+        <button 
+          id="auto-send-toggle-btn"
+          className={`icon-btn ${autoSend ? 'active' : ''}`}
+          onClick={onToggleAutoSend}
+          type="button"
+          style={{ 
+            color: autoSend ? 'var(--accent-emerald)' : 'var(--text-muted)',
+            borderColor: autoSend ? 'rgba(16, 185, 129, 0.4)' : 'var(--border-subtle)',
+            background: autoSend ? 'var(--accent-emerald-subtle)' : 'var(--bg-surface-subtle)'
+          }}
+          title={autoSend ? 'Hands-Free VAD: ON' : 'Hands-Free VAD: OFF'}
+          aria-label="Toggle hands-free mode"
+        >
+          <Radio size={16} />
+        </button>
       </div>
 
       {/* Text message fallback input */}
