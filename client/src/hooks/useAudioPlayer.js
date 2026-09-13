@@ -114,7 +114,29 @@ export function useAudioPlayer({ onPlaybackEnded } = {}) {
     processRawQueue();
   }, [processRawQueue]);
 
-  const speakText = useCallback((text, { speed = 1.0, onEnd } = {}) => {
+  // Pre-load and cache browser voices to prevent robotic fallback
+  const browserVoicesRef = useRef([]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+
+    const loadVoices = () => {
+      const v = window.speechSynthesis.getVoices();
+      if (v && v.length > 0) {
+        browserVoicesRef.current = v;
+      }
+    };
+
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+    return () => {
+      if (window.speechSynthesis) {
+        window.speechSynthesis.onvoiceschanged = null;
+      }
+    };
+  }, []);
+
+  const speakText = useCallback((text, { speed = 1.0, voice = 'af_heart', onEnd } = {}) => {
     if (!text || typeof window === 'undefined' || !window.speechSynthesis) return;
 
     window.speechSynthesis.cancel();
@@ -127,13 +149,46 @@ export function useAudioPlayer({ onPlaybackEnded } = {}) {
     if (!cleanText) return;
 
     const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.rate = Math.max(0.7, Math.min(1.5, speed));
-    utterance.lang = 'en-US';
+    utterance.rate = Math.max(0.7, Math.min(1.4, speed));
 
-    const voices = window.speechSynthesis.getVoices();
-    const bestVoice = voices.find(v => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Samantha') || v.name.includes('Google') || v.name.includes('Daniel') || v.name.includes('Karen'))) ||
-                      voices.find(v => v.lang.startsWith('en'));
-    if (bestVoice) utterance.voice = bestVoice;
+    const voices = browserVoicesRef.current.length > 0 
+      ? browserVoicesRef.current 
+      : window.speechSynthesis.getVoices();
+
+    const isBritish = voice.startsWith('b') || voice.includes('george') || voice.includes('emma');
+    const isMale = voice.startsWith('am_') || voice.startsWith('bm_') || voice.includes('adam') || voice.includes('michael') || voice.includes('george');
+
+    let matchedVoice = null;
+
+    if (isBritish) {
+      utterance.lang = 'en-GB';
+      matchedVoice = voices.find(v => v.lang === 'en-GB' && (
+        isMale ? (v.name.includes('George') || v.name.includes('Oliver') || v.name.includes('Daniel') || v.name.includes('Male'))
+               : (v.name.includes('Emma') || v.name.includes('Sonia') || v.name.includes('Stephanie') || v.name.includes('Female'))
+      )) || voices.find(v => v.lang.startsWith('en-GB'));
+    } else {
+      utterance.lang = 'en-US';
+      matchedVoice = voices.find(v => v.lang.startsWith('en') && (
+        isMale ? (v.name.includes('Guy') || v.name.includes('David') || v.name.includes('Alex') || v.name.includes('Male'))
+               : (v.name.includes('Jenny') || v.name.includes('Aria') || v.name.includes('Samantha') || v.name.includes('Google') || v.name.includes('Natural'))
+      ));
+    }
+
+    if (!matchedVoice) {
+      matchedVoice = voices.find(v => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha')))
+                  || voices.find(v => v.lang.startsWith('en'));
+    }
+
+    if (matchedVoice) {
+      utterance.voice = matchedVoice;
+    }
+
+    // Persona-specific natural pitch tuning
+    if (voice === 'am_michael') utterance.pitch = 0.82;
+    else if (voice === 'af_bella') utterance.pitch = 1.12;
+    else if (voice === 'af_heart') utterance.pitch = 1.05;
+    else if (voice === 'am_adam') utterance.pitch = 0.95;
+    else utterance.pitch = 1.0;
 
     isPlayingRef.current = true;
     setIsPlaying(true);

@@ -11,6 +11,16 @@ import { useWebSocket } from './hooks/useWebSocket';
 import { useAudioRecorder } from './hooks/useAudioRecorder';
 import { useAudioPlayer } from './hooks/useAudioPlayer';
 
+const DEFAULT_VOICES = [
+  { id: 'af_heart', name: 'Heart (Warm & Natural)', gender: 'Female' },
+  { id: 'am_adam', name: 'Adam (Conversational)', gender: 'Male' },
+  { id: 'af_bella', name: 'Bella (Expressive)', gender: 'Female' },
+  { id: 'bm_george', name: 'George (British RP)', gender: 'Male' },
+  { id: 'bf_emma', name: 'Emma (British BBC)', gender: 'Female' },
+  { id: 'af_sarah', name: 'Sarah (Studio Voice)', gender: 'Female' },
+  { id: 'am_michael', name: 'Michael (Deep Voice)', gender: 'Male' }
+];
+
 export default function App() {
   const [messages, setMessages] = useState([]);
   const [streamingText, setStreamingText] = useState('');
@@ -29,8 +39,8 @@ export default function App() {
   const [silenceTimeout, setSilenceTimeout] = useState(3000);
   const [isCallActive, setIsCallActive] = useState(false);
   const [speed, setSpeed] = useState(1.0);
-  const [selectedVoice, setSelectedVoice] = useState('af_heart');
-  const [availableVoices, setAvailableVoices] = useState([]);
+  const [selectedVoice, setSelectedVoice] = useState(() => localStorage.getItem('selected_voice') || 'af_heart');
+  const [availableVoices, setAvailableVoices] = useState(DEFAULT_VOICES);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
   const [isQuotaModalOpen, setIsQuotaModalOpen] = useState(false);
@@ -54,6 +64,9 @@ export default function App() {
   const speakTextRef = useRef(null);
   const startRecordingRef = useRef(null);
   const handleAudioReadyRef = useRef(null);
+  const enqueueAudioRef = useRef(null);
+  const selectedVoiceRef = useRef(selectedVoice);
+  selectedVoiceRef.current = selectedVoice;
 
   // Called when all queued audio chunks have completely finished playing
   const handlePlaybackEnded = useCallback(() => {
@@ -88,7 +101,8 @@ export default function App() {
 
   useEffect(() => {
     speakTextRef.current = speakText;
-  }, [speakText]);
+    enqueueAudioRef.current = enqueueAudio;
+  }, [speakText, enqueueAudio]);
 
   const {
     isRecording,
@@ -102,8 +116,7 @@ export default function App() {
         handleAudioReadyRef.current(blob);
       }
     },
-    silenceTimeoutMs: silenceTimeout,
-    autoSendOnSilence: autoSend
+    silenceTimeoutMs: silenceTimeout
   });
 
   useEffect(() => {
@@ -111,22 +124,22 @@ export default function App() {
   }, [startRecording]);
 
   // Serverless HTTP turn (used when deployed on Vercel or disconnected from local WS)
-  const handleServerlessTurn = useCallback(async (userText) => {
-    if (!userText || !userText.trim()) return;
+  const handleServerlessTurn = useCallback(async (userSpeechText) => {
+    setStreamingText('');
+    setLlmStatus('thinking');
 
     const userMsg = {
       role: 'user',
-      content: userText.trim(),
+      content: userSpeechText,
       timestamp: Date.now()
     };
-    setMessages((prev) => [...prev, userMsg]);
-    setLlmStatus('streaming');
-    setStreamingText('');
+    const updatedMessages = [...messages, userMsg];
+    setMessages(updatedMessages);
 
-    const conversationHistory = [...messages, userMsg].map(m => ({
+    const conversationHistory = updatedMessages.map(m => ({
       role: m.role,
       content: m.content
-    })).slice(-12);
+    }));
 
     try {
       const chatRes = await fetch('/api/chat', {
@@ -174,6 +187,7 @@ export default function App() {
 
       setLlmStatus('idle');
       setStreamingText('');
+      llmDoneRef.current = true;
 
       const assistantMsg = {
         role: 'assistant',
@@ -183,10 +197,35 @@ export default function App() {
       };
       setMessages((prev) => [...prev, assistantMsg]);
 
-      // Speak text using browser native speech synthesis
-      if (speakTextRef.current) {
+      // 1. Synthesize via /api/tts using Azure Edge Neural Voices
+      let playedNeuralAudio = false;
+      try {
+        const ttsRes = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: fullAssistantText,
+            voice: selectedVoiceRef.current,
+            speed
+          })
+        });
+
+        if (ttsRes.ok) {
+          const audioBuffer = await ttsRes.arrayBuffer();
+          if (enqueueAudioRef.current) {
+            enqueueAudioRef.current(audioBuffer);
+            playedNeuralAudio = true;
+          }
+        }
+      } catch (ttsErr) {
+        console.warn('[Serverless TTS] Neural TTS request error, falling back to speech synthesis:', ttsErr);
+      }
+
+      // 2. Fallback to enhanced Web Speech API if neural TTS failed
+      if (!playedNeuralAudio && speakTextRef.current) {
         speakTextRef.current(fullAssistantText, {
           speed,
+          voice: selectedVoiceRef.current,
           onEnd: () => {
             if (isCallActiveRef.current && startRecordingRef.current) {
               setTimeout(() => {
@@ -274,7 +313,10 @@ export default function App() {
           setAvailableVoices(data.voices);
         }
         if (data.defaultVoice) {
-          setSelectedVoice(data.defaultVoice);
+          const savedVoice = localStorage.getItem('selected_voice');
+          if (!savedVoice) {
+            setSelectedVoice(data.defaultVoice);
+          }
         }
         if (data.mode) {
           setMode(data.mode);
@@ -650,7 +692,10 @@ export default function App() {
         selectedVoice={selectedVoice}
         onSelectVoice={(v) => {
           setSelectedVoice(v);
-          sendMessage({ type: 'set_settings', voice: v });
+          localStorage.setItem('selected_voice', v);
+          if (sendMessageRef.current) {
+            sendMessageRef.current({ type: 'set_settings', voice: v });
+          }
         }}
         speed={speed}
         onChangeSpeed={(s) => {

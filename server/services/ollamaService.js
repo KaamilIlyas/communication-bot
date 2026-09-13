@@ -62,15 +62,17 @@ class OllamaService {
 
     const currentApiKey = apiKey || CONFIG.openrouter?.apiKey;
     const effectiveProvider = provider || (currentApiKey ? 'openrouter' : 'local');
-    const usingOpenRouter = effectiveProvider === 'openrouter' && Boolean(currentApiKey);
 
     let response = null;
     const triedModels = new Set();
     const maxOpenRouterRetries = 2;
     let openRouterAttempts = 0;
 
-    // 1. Attempt with OpenRouter (with auto-recovery if model is discontinued)
-    if (usingOpenRouter) {
+    // Helper to attempt OpenRouter with automatic model failover
+    const tryOpenRouter = async () => {
+      if (!this.model || this.model === CONFIG.ollama.model || !this.model.includes('/')) {
+        this.model = CONFIG.openrouter.model || 'nex-agi/nex-n2.5-mini:free';
+      }
       while (openRouterAttempts <= maxOpenRouterRetries) {
         triedModels.add(this.model);
         console.log(`[LLM] 🌐 Using OpenRouter → model: ${this.model}`);
@@ -95,19 +97,19 @@ class OllamaService {
         let lastStatus = 0;
 
         try {
-          response = await fetch(CONFIG.openrouter.baseUrl || 'https://openrouter.ai/api/v1/chat/completions', {
+          const res = await fetch(CONFIG.openrouter.baseUrl || 'https://openrouter.ai/api/v1/chat/completions', {
             method: 'POST',
             headers,
             body: JSON.stringify(openRouterPayload),
             signal
           });
 
-          if (response.ok) {
-            break; // Successful connection! Proceed to streaming
+          if (res.ok) {
+            return res;
           }
 
-          lastStatus = response.status;
-          lastErrText = await response.text().catch(() => '');
+          lastStatus = res.status;
+          lastErrText = await res.text().catch(() => '');
           console.warn(`[LLM] ⚠️ OpenRouter returned ${lastStatus} for model "${this.model}":`, lastErrText);
 
           const isRateOrDailyLimit = lastStatus === 429 ||
@@ -126,7 +128,6 @@ class OllamaService {
                                      lastErrText.toLowerCase().includes('no such model') ||
                                      lastErrText.toLowerCase().includes('slug instead');
 
-          // If it's a rate/daily quota limit or model unavailable, attempt to query other free models
           if ((isModelUnavailable || isRateOrDailyLimit) && openRouterAttempts < maxOpenRouterRetries) {
             console.log('[LLM] 🔍 Model issue on OpenRouter. Querying for currently active free models...');
             const nextModel = await getBestAvailableFreeModel({
@@ -139,11 +140,10 @@ class OllamaService {
               this.model = nextModel;
               CONFIG.openrouter.model = nextModel;
               openRouterAttempts++;
-              continue; // Immediately retry with the newly discovered free model!
+              continue;
             }
           }
 
-          // If rate limit / quota exceeded and no other free models worked:
           if (isRateOrDailyLimit) {
             throw new OpenRouterQuotaError('OpenRouter rate limit or daily free quota exceeded.', {
               status: lastStatus,
@@ -159,11 +159,12 @@ class OllamaService {
 
         break;
       }
-    }
+      return null;
+    };
 
-    // 2. Fallback to local Ollama if OpenRouter failed or is unavailable
-    if (!response || !response.ok) {
-      console.log(`[LLM] 🖥️  Falling back to local Ollama → model: ${CONFIG.ollama.model}`);
+    // Helper to attempt local Ollama
+    const tryOllama = async () => {
+      console.log(`[LLM] 🖥️  Connecting to local Ollama → model: ${CONFIG.ollama.model} (${CONFIG.ollama.url})`);
       this.baseUrl = CONFIG.ollama.url;
       this.model = CONFIG.ollama.model;
 
@@ -175,18 +176,38 @@ class OllamaService {
       };
 
       try {
-        response = await fetch(`${this.baseUrl}/api/chat`, {
+        const res = await fetch(`${this.baseUrl}/api/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(ollamaPayload),
           signal
         });
+        if (res.ok) return res;
       } catch (localErr) {
-        if (localErr.cause?.code === 'ECONNREFUSED' || localErr.message?.includes('fetch failed')) {
-          throw new Error('Unable to connect to OpenRouter or local Ollama. Please verify your OpenRouter API key or run Ollama locally.');
-        }
-        throw localErr;
+        console.warn(`[LLM] Local Ollama unavailable:`, localErr.message);
       }
+      return null;
+    };
+
+    // Dual-direction fallback:
+    // If effectiveProvider is openrouter, try OpenRouter first, then Ollama.
+    // If effectiveProvider is local, try Ollama first; if offline, fallback to OpenRouter.
+    if (effectiveProvider === 'openrouter' && currentApiKey) {
+      response = await tryOpenRouter();
+      if (!response && !signal?.aborted) {
+        console.log('[LLM] 🔄 OpenRouter unavailable. Falling back to local Ollama...');
+        response = await tryOllama();
+      }
+    } else {
+      response = await tryOllama();
+      if (!response && currentApiKey && !signal?.aborted) {
+        console.log('[LLM] 🔄 Local Ollama offline. Falling back to OpenRouter...');
+        response = await tryOpenRouter();
+      }
+    }
+
+    if (!response || !response.ok) {
+      throw new Error('Unable to connect to OpenRouter or local Ollama. Please verify your OpenRouter API key or run Ollama locally.');
     }
 
     if (!response.ok) {
