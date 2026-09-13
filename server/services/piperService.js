@@ -111,12 +111,14 @@ class TTSService {
 
       if (this.isReady && this.worker) {
         const reqId = crypto.randomUUID();
+        const ttsStart = Date.now();
         try {
-          return await new Promise((resolve, reject) => {
+          const result = await new Promise((resolve, reject) => {
+            // Kokoro is single-threaded; allow 30s so queued sentences don't time out
             const timer = setTimeout(() => {
               this.pendingRequests.delete(reqId);
               reject(new Error('Kokoro TTS synthesis timed out'));
-            }, 8000);
+            }, 30000);
 
             this.pendingRequests.set(reqId, { resolve, reject, timer });
             const payload = JSON.stringify({
@@ -127,13 +129,17 @@ class TTSService {
             }) + '\n';
             this.worker.stdin.write(payload);
           });
+          const elapsed = ((Date.now() - ttsStart) / 1000).toFixed(2);
+          console.log(`[TTS] 🎙️  Kokoro synthesized "${cleanedText.slice(0, 40)}…" in ${elapsed}s`);
+          return result;
         } catch (e) {
-          console.warn('[TTSService] Kokoro failed, falling back to Piper:', e.message);
+          console.warn(`[TTS] ⚠️  Kokoro failed (${e.message}), switching to Piper`);
         }
       }
     }
 
-    // Piper fallback synthesis
+    // Piper fallback synthesis (only Piper voices, or when Kokoro is unavailable)
+    console.log(`[TTS] 🔊 Using Piper for: "${cleanedText.slice(0, 40)}…"`);
     return this.synthesizeWithPiper(cleanedText, voice, speed);
   }
 
@@ -155,9 +161,8 @@ class TTSService {
         '-m', 'piper',
         '--model', modelPath,
         '--length-scale', lengthScale,
-        '--noise-scale', '0.72',
-        '--noise-w-scale', '0.80',
-        '--sentence-silence', '0.15',
+        '--noise-scale', '0.667',
+        '--noise-w-scale', '0.8',
         '--output-file', '-'
       ];
 

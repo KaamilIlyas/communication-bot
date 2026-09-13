@@ -13,6 +13,7 @@ export function useWebSocket({ onMessage, url }) {
 
   const getWsUrl = useCallback(() => {
     if (url) return url;
+    if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     // If running in Vite dev mode on 5173, backend is on 3001
     const host = window.location.port === '5173' ? `${window.location.hostname}:3001` : window.location.host;

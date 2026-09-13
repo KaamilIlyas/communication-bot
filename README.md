@@ -44,12 +44,58 @@ A fast, real-time voice-to-voice conversational AI partner and English speaking 
 
 ---
 
+## 🎯 Conversational Modes & Simulation Scenarios
+
+The bot features 5 specialized operational modes for speaking fluency, exam preparation, and career growth:
+
+### 1. 💬 Casual Conversation
+- **Persona**: Warm, charismatic, and witty conversational partner.
+- **Focus**: Spontaneous everyday English conversation (travel, food, hobbies, pop culture, philosophical thoughts).
+- **Format**: Short, lively 1–2 sentence spoken turns with natural follow-up questions.
+
+### 2. 💼 Job Interview Simulator
+- **Persona**: Senior Tech Lead & Technical Hiring Manager.
+- **Role Presets**:
+  - 🚀 **Full-Stack MERN Developer**: React hooks/lifecycle, Node.js event loop, Express middleware, MongoDB schema/aggregation, REST APIs.
+  - 🎓 **Final Year Project (FYP) & Portfolio Defense**: Architectural decisions, DB tradeoffs, authentication, deployment challenges.
+  - ⚛️ **Frontend React & UI**: Component optimization, Virtual DOM, CSS performance, state management.
+  - 🛠️ **Backend & Database**: Indexing, query optimization, non-blocking I/O, security, microservices.
+  - ✏️ **Custom Target Role**: Set any custom job title (e.g. AI Engineer, DevOps, Product Manager).
+
+### 3. 🎓 IELTS / TOEFL Speaking Exam Simulator
+- **Persona**: Certified British Council / IDP IELTS Speaking Examiner.
+- **Exam Stages**:
+  - 📋 **Full Exam (Parts 1–3)**: Comprehensive 3-part simulation with final Band score evaluation.
+  - 🗣️ **Part 1 (General Q&A)**: Everyday topics (hometown, studies, hobbies, daily routines).
+  - ⏱️ **Part 2 (Cue Card)**: 1-minute preparation guidance and 2-minute uninterrupted speech prompts.
+  - 💡 **Part 3 (In-Depth Discussion)**: Analytical, abstract questions on societal and global issues.
+- **Band Score Estimation**: Provides estimated Band scores (Band 5.0 – 9.0) on Fluency, Lexical Resource, Grammar Range, and Pronunciation.
+
+### 4. 🏢 Workplace Situations & Negotiations
+- **Persona**: Corporate Executive & Negotiation Coach.
+- **Scenarios**:
+  - 💰 **Salary & Promotion Negotiation**: Present achievements with measurable metrics; handle counter-offers politely.
+  - 📊 **Executive & Client Pitch**: Pitch technical proposals and defend architectural decisions.
+  - ⏱️ **Agile Sprint Standup & Demo**: Deliver concise updates, report blockers, and demo new features.
+  - 🤝 **Conflict Resolution & Pushback**: Negotiate unrealistic deadlines and resolve team disagreements.
+
+### 5. ⚔️ AI Debate Partner
+- **Persona**: Oxford-style sharp, respectful, and articulate debater.
+- **Focus Topics**:
+  - 🤖 **AI vs Human Software Engineers**: Will AI replace developers or amplify creativity?
+  - 🏡 **Remote Work vs In-Office**: Productivity, culture, and developer satisfaction.
+  - 🏗️ **Microservices vs Monoliths**: Scalability vs operational complexity.
+  - 📱 **Social Media Impact**: Information democratization vs cognitive focus and mental health.
+- **Rhetoric Training**: Takes the opposing stance to train fast critical thinking, reasoning, and persuasive vocabulary.
+
+---
+
 ## 🚀 Key Features
 
 - **⚡ Sub-Second Voice Response**: First phrase begins synthesizing in ~100ms, starting playback in ~0.5s.
 - **✨ Speech-Synchronized Text (Lockstep Display)**: Text appears on screen in real-time as words are spoken, keeping visuals and audio aligned.
 - **🗣️ State-of-the-Art Neural Voices**: Ultra-realistic Kokoro voices (Heart, Adam, Bella, George, Emma, Sarah, Michael).
-- **🎓 English Coaching Mode**: Detects grammar, tense, and vocabulary mistakes in real time, delivering gentle correction cards without interrupting conversation flow.
+- **💼 Interactive Scenario Selector**: 1-click preset switching for interviews, IELTS tests, workplace negotiations, and debates.
 - **📻 Hands-Free Auto-VAD**: Automatically detects when you finish speaking, sends audio, and re-arms the microphone when the AI finishes talking.
 - **🛑 Instant Barge-In / Interrupt**: Stop AI speech and token generation instantly at any time.
 

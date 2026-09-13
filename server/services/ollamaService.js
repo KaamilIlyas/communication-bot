@@ -1,14 +1,27 @@
 import { CONFIG } from '../config.js';
+import { getBestAvailableFreeModel } from './openrouterModelService.js';
+
+export class OpenRouterQuotaError extends Error {
+  constructor(message, details = {}) {
+    super(message);
+    this.name = 'OpenRouterQuotaError';
+    this.details = details;
+  }
+}
 
 class OllamaService {
   constructor() {
-    this.baseUrl = CONFIG.ollama.url;
-    this.model = CONFIG.ollama.model;
+    this.baseUrl = CONFIG.openrouter && CONFIG.openrouter.apiKey ? CONFIG.openrouter.baseUrl : CONFIG.ollama.url;
+    this.model = CONFIG.openrouter && CONFIG.openrouter.apiKey ? CONFIG.openrouter.model : CONFIG.ollama.model;
   }
 
   async checkHealth() {
+    // Determine if we are using OpenRouter for chat
+    const usingOpenRouter = CONFIG.openrouter && CONFIG.openrouter.apiKey;
+    // For health checks, always query local Ollama instance
+    const healthUrl = `${CONFIG.ollama.url}/api/tags`;
     try {
-      const res = await fetch(`${this.baseUrl}/api/tags`);
+      const res = await fetch(healthUrl);
       if (!res.ok) return { available: false, error: `HTTP ${res.status}` };
       const data = await res.json();
       const models = (data.models || []).map(m => m.name);
@@ -20,136 +33,268 @@ class OllamaService {
   }
 
   /**
-   * Streams chat completion from Ollama with sentence-level pipelining.
+   * Streams chat completion from OpenRouter or Ollama with sentence-level pipelining.
+   * Automatically detects discontinued free models on OpenRouter, queries for active replacements,
+   * updates .env, and seamlessly retries.
    * @param {Array<{role: string, content: string}>} history Message history
-   * @param {object} options { isPracticeMode, customPrompt, onChunk, onSentence, signal }
-   * @returns {Promise<{ fullResponse: string, spokenText: string, correction: object|null }>}
+   * @param {object} options { mode, role, scenario, customPrompt, onChunk, onSentence, signal, provider, apiKey }
+   * @returns {Promise<{ fullResponse: string, spokenText: string }>}
    */
   async streamChat(history, options = {}) {
     const {
-      isPracticeMode = false,
+      mode = 'casual',
+      role = 'Full-Stack MERN Developer',
+      scenario = '',
       customPrompt = null,
       onChunk = () => {},
       onSentence = () => {},
-      signal = null
+      signal = null,
+      provider = null,
+      apiKey = null
     } = options;
 
-    const systemPrompt = customPrompt || (isPracticeMode ? CONFIG.systemPrompts.practiceMode : CONFIG.systemPrompts.conversational);
+    const systemPrompt = customPrompt || CONFIG.getSystemPrompt({ mode, role, scenario });
 
     const messages = [
       { role: 'system', content: systemPrompt },
       ...history
     ];
 
-    const payload = {
-      model: this.model,
-      messages: messages,
-      stream: true,
-      options: {
-        temperature: 0.7,
-        top_p: 0.9,
-        num_predict: 120 // Short, fast conversational turns
-      }
-    };
+    const currentApiKey = apiKey || CONFIG.openrouter?.apiKey;
+    const effectiveProvider = provider || (currentApiKey ? 'openrouter' : 'local');
+    const usingOpenRouter = effectiveProvider === 'openrouter' && Boolean(currentApiKey);
 
-    const response = await fetch(`${this.baseUrl}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal
-    });
+    let response = null;
+    const triedModels = new Set();
+    const maxOpenRouterRetries = 2;
+    let openRouterAttempts = 0;
+
+    // 1. Attempt with OpenRouter (with auto-recovery if model is discontinued)
+    if (usingOpenRouter) {
+      while (openRouterAttempts <= maxOpenRouterRetries) {
+        triedModels.add(this.model);
+        console.log(`[LLM] 🌐 Using OpenRouter → model: ${this.model}`);
+
+        const openRouterPayload = {
+          model: this.model,
+          messages,
+          stream: true,
+          temperature: 0.7,
+          top_p: 0.9,
+          max_tokens: 300
+        };
+
+        const headers = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${currentApiKey}`,
+          'HTTP-Referer': 'https://english-speaking-bot',
+          'X-Title': 'English Speaking Bot'
+        };
+
+        let lastErrText = '';
+        let lastStatus = 0;
+
+        try {
+          response = await fetch(CONFIG.openrouter.baseUrl || 'https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(openRouterPayload),
+            signal
+          });
+
+          if (response.ok) {
+            break; // Successful connection! Proceed to streaming
+          }
+
+          lastStatus = response.status;
+          lastErrText = await response.text().catch(() => '');
+          console.warn(`[LLM] ⚠️ OpenRouter returned ${lastStatus} for model "${this.model}":`, lastErrText);
+
+          const isRateOrDailyLimit = lastStatus === 429 ||
+                                     lastStatus === 402 ||
+                                     lastErrText.toLowerCase().includes('rate limit') ||
+                                     lastErrText.toLowerCase().includes('daily limit') ||
+                                     lastErrText.toLowerCase().includes('quota') ||
+                                     lastErrText.toLowerCase().includes('too many requests') ||
+                                     lastErrText.toLowerCase().includes('credit') ||
+                                     lastErrText.toLowerCase().includes('payment required');
+
+          const isModelUnavailable = lastStatus === 404 ||
+                                     lastStatus === 400 ||
+                                     lastErrText.toLowerCase().includes('unavailable for free') ||
+                                     lastErrText.toLowerCase().includes('not found') ||
+                                     lastErrText.toLowerCase().includes('no such model') ||
+                                     lastErrText.toLowerCase().includes('slug instead');
+
+          // If it's a rate/daily quota limit or model unavailable, attempt to query other free models
+          if ((isModelUnavailable || isRateOrDailyLimit) && openRouterAttempts < maxOpenRouterRetries) {
+            console.log('[LLM] 🔍 Model issue on OpenRouter. Querying for currently active free models...');
+            const nextModel = await getBestAvailableFreeModel({
+              apiKey: currentApiKey,
+              excludedModels: Array.from(triedModels)
+            });
+
+            if (nextModel && nextModel !== this.model) {
+              console.log(`[LLM] 🔄 Automatically switched to active free model: ${nextModel}`);
+              this.model = nextModel;
+              CONFIG.openrouter.model = nextModel;
+              openRouterAttempts++;
+              continue; // Immediately retry with the newly discovered free model!
+            }
+          }
+
+          // If rate limit / quota exceeded and no other free models worked:
+          if (isRateOrDailyLimit) {
+            throw new OpenRouterQuotaError('OpenRouter rate limit or daily free quota exceeded.', {
+              status: lastStatus,
+              error: lastErrText
+            });
+          }
+        } catch (fetchErr) {
+          if (fetchErr instanceof OpenRouterQuotaError) {
+            throw fetchErr;
+          }
+          console.warn(`[LLM] OpenRouter connection issue:`, fetchErr.message);
+        }
+
+        break;
+      }
+    }
+
+    // 2. Fallback to local Ollama if OpenRouter failed or is unavailable
+    if (!response || !response.ok) {
+      console.log(`[LLM] 🖥️  Falling back to local Ollama → model: ${CONFIG.ollama.model}`);
+      this.baseUrl = CONFIG.ollama.url;
+      this.model = CONFIG.ollama.model;
+
+      const ollamaPayload = {
+        model: this.model,
+        messages,
+        stream: true,
+        options: { temperature: 0.7, top_p: 0.9, num_predict: 120 }
+      };
+
+      try {
+        response = await fetch(`${this.baseUrl}/api/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(ollamaPayload),
+          signal
+        });
+      } catch (localErr) {
+        if (localErr.cause?.code === 'ECONNREFUSED' || localErr.message?.includes('fetch failed')) {
+          throw new Error('Unable to connect to OpenRouter or local Ollama. Please verify your OpenRouter API key or run Ollama locally.');
+        }
+        throw localErr;
+      }
+    }
 
     if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Ollama request failed (${response.status}): ${errText}`);
+      const errText = await response.text().catch(() => response.status);
+      throw new Error(`LLM request failed (${response.status}): ${errText}`);
     }
 
     const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    
+    const decoder = new TextDecoder('utf-8');
     let fullResponse = '';
     let sentenceBuffer = '';
     let sentenceIndex = 0;
-
-    // Natural conversational speech boundary regex:
-    // 1. Terminal punctuation (. ! ? \n)
-    // 2. Clause punctuation (, ; : -) if buffer has at least 5 words
-    const terminalPunctRegex = /([.!?]+|\n+)(?:\s+|$)/;
-    const clausePunctRegex = /([,;:—\-]+)(?:\s+|$)/;
+    let isThinking = false;
+    let thinkingBuffer = '';
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
 
-      const chunkStr = decoder.decode(value, { stream: true });
-      const lines = chunkStr.split('\n').filter(Boolean);
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split('\n').filter((l) => l.trim().length > 0);
 
       for (const line of lines) {
         try {
-          const json = JSON.parse(line);
-          const token = json.message?.content || '';
+          // Handle OpenAI-compatible SSE format (OpenRouter) and raw Ollama JSON
+          let rawLine = line;
+          if (rawLine.startsWith('data: ')) {
+            rawLine = rawLine.slice(6).trim();
+          }
+          if (rawLine === '[DONE]') continue;
+
+          const json = JSON.parse(rawLine);
+
+          // OpenAI/OpenRouter format: choices[0].delta.content
+          // Ollama format: message.content
+          let token = json.choices?.[0]?.delta?.content || json.message?.content || '';
+
           if (!token) continue;
+
+          // Detect & filter out Chain-of-Thought / "thinking process" blocks
+          if (!isThinking) {
+            const combinedPreview = (thinkingBuffer + token).toLowerCase();
+            if (token.includes('<think>') || combinedPreview.includes("here's a thinking process") || combinedPreview.includes("thinking process:")) {
+              isThinking = true;
+            }
+          }
+
+          if (isThinking) {
+            thinkingBuffer += token;
+            if (thinkingBuffer.includes('</think>')) {
+              isThinking = false;
+              token = thinkingBuffer.split('</think>')[1] || '';
+              thinkingBuffer = '';
+              if (!token) continue;
+            } else if (/here'?s a thinking process/i.test(thinkingBuffer) && (thinkingBuffer.includes('\n\n') || thinkingBuffer.includes('\r\n\r\n'))) {
+              const parts = thinkingBuffer.split(/\n\s*\n/);
+              const lastPart = parts[parts.length - 1].trim();
+              if (lastPart && !lastPart.match(/^\d+\./) && !lastPart.startsWith('-') && !lastPart.toLowerCase().includes('analyze') && !lastPart.toLowerCase().includes('identify')) {
+                isThinking = false;
+                token = lastPart;
+                thinkingBuffer = '';
+              } else {
+                continue;
+              }
+            } else {
+              // Suppress thinking tokens from being spoken or emitted
+              continue;
+            }
+          }
 
           fullResponse += token;
           sentenceBuffer += token;
           onChunk(token);
 
-          // If the model started writing a correction tag, don't send it to TTS
-          if (sentenceBuffer.includes('[CORRECTION:')) {
-            const corrStart = sentenceBuffer.indexOf('[CORRECTION:');
-            const preCorrText = sentenceBuffer.substring(0, corrStart).trim();
-            if (preCorrText) {
-              onSentence(preCorrText, sentenceIndex++);
-            }
-            sentenceBuffer = '';
-            continue;
-          }
+          // Natural sentence boundary detection — only cut at sentence-ending punctuation
+          // to avoid mid-sentence audio gaps from comma/colon splits
+          const wordCount = sentenceBuffer.trim().split(/\s+/).filter(Boolean).length;
+          const sentenceEnd = /[.!?](\s|$)/.test(sentenceBuffer);
+          const newlineBreak = sentenceBuffer.includes('\n');
 
-          const words = sentenceBuffer.trim().split(/\s+/).filter(Boolean);
           let shouldCut = false;
           let cutIdx = -1;
 
-          // 1. Kickstart first chunk with low latency (4+ words on any punct or 7+ words)
-          if (sentenceIndex === 0) {
-            const firstPunctMatch = /([.!?,\n;:]+)(?:\s+|$)/.exec(sentenceBuffer);
-            if (firstPunctMatch && words.length >= 4) {
+          if (sentenceEnd) {
+            // Find the last sentence-ending punctuation followed by space/end
+            const match = sentenceBuffer.match(/[.!?](?=\s|$)/);
+            if (match) {
+              cutIdx = match.index + 1;
               shouldCut = true;
-              cutIdx = firstPunctMatch.index + firstPunctMatch[0].length;
-            } else if (words.length >= 7) {
-              const spaceMatches = [...sentenceBuffer.matchAll(/\s+/g)];
-              if (spaceMatches.length >= 5) {
-                const spaceMatch = spaceMatches[4];
-                shouldCut = true;
-                cutIdx = spaceMatch.index + spaceMatch[0].length;
-              }
             }
-          } else {
-            // 2. Subsequent chunks:
-            const termMatch = /([.!?]+|\n+)(?:\s+|$)/.exec(sentenceBuffer);
-            if (termMatch && words.length >= 3) {
-              shouldCut = true;
-              cutIdx = termMatch.index + termMatch[0].length;
-            } else {
-              const clauseMatch = /([,;:—\-]+)(?:\s+|$)/.exec(sentenceBuffer);
-              if (clauseMatch && words.length >= 5) {
-                shouldCut = true;
-                cutIdx = clauseMatch.index + clauseMatch[0].length;
-              } else if (words.length >= 10) {
-                const spaceMatches = [...sentenceBuffer.matchAll(/\s+/g)];
-                if (spaceMatches.length >= 7) {
-                  const spaceMatch = spaceMatches[6];
-                  shouldCut = true;
-                  cutIdx = spaceMatch.index + spaceMatch[0].length;
-                }
-              }
-            }
+          } else if (newlineBreak) {
+            cutIdx = sentenceBuffer.lastIndexOf('\n') + 1;
+            shouldCut = cutIdx > 1;
+          } else if (sentenceIndex === 0 && wordCount >= 8) {
+            // First chunk: emit fast after 8 words if no punctuation yet
+            cutIdx = sentenceBuffer.length;
+            shouldCut = true;
+          } else if (sentenceIndex > 0 && wordCount >= 15) {
+            // Safety valve: avoid indefinitely long buffers
+            cutIdx = sentenceBuffer.length;
+            shouldCut = true;
           }
 
           if (shouldCut && cutIdx > 0) {
             const completeSentence = sentenceBuffer.substring(0, cutIdx).trim();
             sentenceBuffer = sentenceBuffer.substring(cutIdx);
 
-            if (completeSentence && !completeSentence.startsWith('[CORRECTION:')) {
+            if (completeSentence) {
               onSentence(completeSentence, sentenceIndex++);
             }
           }
@@ -160,37 +305,22 @@ class OllamaService {
     }
 
     // Flush any remaining buffered text as final phrase
-    const remaining = sentenceBuffer.replace(/\[CORRECTION:.*?\]/gis, '').trim();
+    const remaining = sentenceBuffer.trim();
     if (remaining) {
       onSentence(remaining, sentenceIndex++);
     }
 
-    // Robust parsing for English practice correction tags
-    let correction = null;
-    const regexList = [
-      /\[CORRECTION:\s*([^->\n|]+)\s*->\s*([^|\n\]]+)\s*\|\s*([^\]]+)\]/i,
-      /\[CORRECTION:\s*original:\s*([^,\n]+),\s*corrected:\s*([^,\n]+),\s*explanation:\s*([^\]]+)\]/i,
-      /\[CORRECTION:\s*["']?([^"'->\n]+)["']?\s*->\s*["']?([^"'|\n]+)["']?\s*(?:\||:|-)\s*([^\]]+)\]/i
-    ];
-
-    for (const re of regexList) {
-      const match = fullResponse.match(re);
-      if (match) {
-        correction = {
-          original: match[1].replace(/["']/g, '').trim(),
-          corrected: match[2].replace(/["']/g, '').trim(),
-          explanation: match[3].replace(/["']/g, '').trim()
-        };
-        break;
-      }
-    }
-
-    const spokenText = fullResponse.replace(/\[CORRECTION:.*?\]/gis, '').trim();
+    // Final safety clean for spoken text: remove any residual thinking artifacts
+    let spokenText = fullResponse.trim();
+    spokenText = spokenText
+      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+      .replace(/<think>[\s\S]*$/gi, '')
+      .replace(/here'?s a thinking process:?[\s\S]*?(?=\n\n[A-Z"“]|\n[A-Z"“]|$)/gi, '')
+      .trim();
 
     return {
-      fullResponse,
-      spokenText,
-      correction
+      fullResponse: spokenText,
+      spokenText
     };
   }
 }

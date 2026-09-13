@@ -6,7 +6,8 @@ import crypto from 'crypto';
 import { CONFIG } from './config.js';
 import { whisperService } from './services/whisperService.js';
 import { piperService } from './services/piperService.js';
-import { ollamaService } from './services/ollamaService.js';
+import { ollamaService, OpenRouterQuotaError } from './services/ollamaService.js';
+import { updateEnvVariable } from './services/envService.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -14,6 +15,11 @@ const wss = new WebSocketServer({ server });
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
+
+// Root endpoint for Hugging Face Spaces healthcheck
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', message: 'English Voice Bot Backend is running!' });
+});
 
 // Health check endpoint
 app.get('/api/health', async (req, res) => {
@@ -44,10 +50,15 @@ wss.on('connection', (ws) => {
   const sessionState = {
     id: sessionId,
     history: [],
-    isPracticeMode: false,
+    mode: 'casual',
+    role: 'Full-Stack MERN Developer',
+    scenario: '',
     selectedVoice: CONFIG.piper.defaultVoice,
     speechSpeed: 1.0,
-    activeAbortController: null
+    activeAbortController: null,
+    provider: CONFIG.openrouter && CONFIG.openrouter.apiKey ? 'openrouter' : 'local',
+    customOpenRouterKey: null,
+    lastPendingTurn: null
   };
   sessions.set(ws, sessionState);
 
@@ -58,7 +69,14 @@ wss.on('connection', (ws) => {
     type: 'connected',
     sessionId,
     voices: piperService.getVoices(),
-    defaultVoice: CONFIG.piper.defaultVoice
+    defaultVoice: CONFIG.piper.defaultVoice,
+    modes: CONFIG.modes,
+    mode: sessionState.mode,
+    role: sessionState.role,
+    scenario: sessionState.scenario,
+    llmProvider: sessionState.provider,
+    hasOpenRouterKey: Boolean(CONFIG.openrouter && CONFIG.openrouter.apiKey),
+    ollamaModel: CONFIG.ollama.model
   }));
 
   ws.on('message', async (data, isBinary) => {
@@ -105,15 +123,80 @@ async function handleClientMessage(ws, session, message) {
   };
 
   switch (message.type) {
+    case 'set_mode': {
+      if (message.mode) session.mode = message.mode;
+      if (message.role !== undefined) session.role = message.role;
+      if (message.scenario !== undefined) session.scenario = message.scenario;
+      if (message.resetHistory) session.history = [];
+      send({
+        type: 'mode_updated',
+        mode: session.mode,
+        role: session.role,
+        scenario: session.scenario
+      });
+      break;
+    }
+
     case 'set_settings': {
       if (message.voice) session.selectedVoice = message.voice;
       if (message.speed) session.speechSpeed = parseFloat(message.speed) || 1.0;
-      if (typeof message.practiceMode === 'boolean') session.isPracticeMode = message.practiceMode;
+      if (message.mode) session.mode = message.mode;
+      if (message.role !== undefined) session.role = message.role;
+      if (message.scenario !== undefined) session.scenario = message.scenario;
       send({ type: 'settings_updated', settings: {
         voice: session.selectedVoice,
         speed: session.speechSpeed,
-        practiceMode: session.isPracticeMode
+        mode: session.mode,
+        role: session.role,
+        scenario: session.scenario
       }});
+      break;
+    }
+
+    case 'set_llm_provider': {
+      if (message.provider) session.provider = message.provider;
+      if (message.apiKey) {
+        const key = message.apiKey.trim();
+        session.customOpenRouterKey = key;
+        CONFIG.openrouter.apiKey = key;
+        updateEnvVariable('OPENROUTER_API_KEY', key);
+      }
+      send({
+        type: 'llm_provider_updated',
+        provider: session.provider
+      });
+
+      if (message.retryLast && session.lastPendingTurn) {
+        const { userText, messageOptions: lastOpts } = session.lastPendingTurn;
+        session.lastPendingTurn = null;
+        const abortController = new AbortController();
+        session.activeAbortController = abortController;
+        await processConversationTurn(ws, session, userText, lastOpts, abortController);
+      }
+      break;
+    }
+
+    case 'set_openrouter_key': {
+      const key = (message.apiKey || '').trim();
+      if (key) {
+        session.customOpenRouterKey = key;
+        session.provider = 'openrouter';
+        CONFIG.openrouter.apiKey = key;
+        updateEnvVariable('OPENROUTER_API_KEY', key);
+        send({
+          type: 'openrouter_key_saved',
+          success: true,
+          provider: 'openrouter'
+        });
+
+        if (message.retryLast && session.lastPendingTurn) {
+          const { userText, messageOptions: lastOpts } = session.lastPendingTurn;
+          session.lastPendingTurn = null;
+          const abortController = new AbortController();
+          session.activeAbortController = abortController;
+          await processConversationTurn(ws, session, userText, lastOpts, abortController);
+        }
+      }
       break;
     }
 
@@ -205,8 +288,11 @@ async function processConversationTurn(ws, session, userText, messageOptions, ab
     }
   };
 
-  const isPracticeMode = messageOptions.isPracticeMode ?? session.isPracticeMode;
+  const mode = messageOptions.mode || session.mode || 'casual';
+  const role = messageOptions.role || session.role || 'Full-Stack MERN Developer';
+  const scenario = messageOptions.scenario || session.scenario || '';
   const voice = messageOptions.voice || session.selectedVoice;
+  const fixedVoice = voice; // capture voice at start of turn — prevents mid-response voice switching
   const speed = messageOptions.speed || session.speechSpeed;
 
   // Add user turn to conversation history
@@ -217,13 +303,19 @@ async function processConversationTurn(ws, session, userText, messageOptions, ab
     session.history = session.history.slice(-16);
   }
 
-  send({ type: 'llm_start', isPracticeMode });
+  send({ type: 'llm_start', mode, role, scenario });
 
+  // Parallel TTS: synthesize each sentence as soon as it's ready.
+  // Kokoro timeout is now 30s so the queue won't overflow.
   const ttsPromises = [];
 
   try {
     const result = await ollamaService.streamChat(session.history, {
-      isPracticeMode,
+      mode,
+      role,
+      scenario,
+      provider: session.provider,
+      apiKey: session.customOpenRouterKey || CONFIG.openrouter.apiKey,
       signal: abortController.signal,
       onChunk: (token) => {
         if (!abortController.signal.aborted) {
@@ -232,11 +324,11 @@ async function processConversationTurn(ws, session, userText, messageOptions, ab
       },
       onSentence: (sentence, index) => {
         if (abortController.signal.aborted) return;
-        
-        // As soon as a sentence is formed, kick off Piper TTS synthesis in parallel!
+
+        // Fire TTS synthesis immediately in parallel for lowest latency
         const ttsTask = (async () => {
           try {
-            const wavBuffer = await piperService.synthesizeToBuffer(sentence, { voice, speed });
+            const wavBuffer = await piperService.synthesizeToBuffer(sentence, { voice: fixedVoice, speed });
             if (wavBuffer && wavBuffer.length > 0 && !abortController.signal.aborted) {
               send({
                 type: 'audio_chunk',
@@ -247,7 +339,7 @@ async function processConversationTurn(ws, session, userText, messageOptions, ab
               });
             }
           } catch (ttsErr) {
-            console.error(`[Piper TTS] Synthesis error on sentence ${index}:`, ttsErr);
+            console.error(`[TTS] Synthesis error on sentence ${index}:`, ttsErr);
           }
         })();
 
@@ -255,7 +347,7 @@ async function processConversationTurn(ws, session, userText, messageOptions, ab
       }
     });
 
-    // Wait for any remaining TTS chunks to complete
+    // Wait for all parallel TTS tasks to finish
     await Promise.all(ttsPromises);
 
     // Save assistant response to session history
@@ -264,13 +356,21 @@ async function processConversationTurn(ws, session, userText, messageOptions, ab
     send({
       type: 'llm_done',
       fullText: result.fullResponse,
-      spokenText: result.spokenText,
-      correction: result.correction
+      spokenText: result.spokenText
     });
 
   } catch (err) {
     if (abortController.signal.aborted) {
       console.log('[Conversation] Stream aborted by user.');
+    } else if (err instanceof OpenRouterQuotaError || err.name === 'OpenRouterQuotaError') {
+      console.warn('[Conversation] ⚠️ OpenRouter quota/rate limit reached. Notifying user.');
+      session.lastPendingTurn = { userText, messageOptions };
+      send({
+        type: 'openrouter_limit_exceeded',
+        message: 'The free OpenRouter daily limit or rate limit has been reached.',
+        details: err.details || {},
+        defaultOllamaModel: CONFIG.ollama.model
+      });
     } else {
       console.error('[Conversation] LLM processing error:', err);
       send({

@@ -26,79 +26,95 @@ export function Controls({
   };
 
   return (
-    <div className="controls-bar">
-      {/* Left: Clear / Reset */}
-      <div>
-        <button 
-          id="clear-history-btn"
-          className="icon-btn" 
-          onClick={onClearHistory}
-          title="Clear Conversation History"
-        >
-          <RotateCcw size={16} />
-        </button>
-      </div>
-
-      {/* Center: Main Push-to-Talk & Interrupt Action */}
-      <div className="mic-action-group">
-        {isPlaying && (
+    <footer className="controls-bar" aria-label="Conversation controls">
+      {/* Voice actions container */}
+      <div className="controls-voice-group">
+        <div className="controls-left">
           <button 
-            id="interrupt-ai-btn"
-            className="interrupt-btn" 
-            onClick={onInterrupt}
-            title="Interrupt and stop AI speaking"
+            id="clear-history-btn"
+            className="icon-btn" 
+            onClick={onClearHistory}
+            title="Reset conversation history"
+            type="button"
+            aria-label="Reset conversation"
           >
-            <Square size={14} fill="currentColor" />
-            <span>Interrupt</span>
+            <RotateCcw size={16} />
           </button>
-        )}
+        </div>
 
-        <button
-          id="main-mic-btn"
-          className={`mic-button ${isRecording ? 'recording' : ''}`}
-          onClick={handleToggle}
-          type="button"
-          title={isRecording ? 'Click to pause/stop voice call' : 'Click once to start real-time English conversation'}
-        >
-          {isRecording ? <Mic size={30} /> : <Mic size={28} />}
-        </button>
+        <div className="controls-center">
+          {isPlaying && (
+            <button 
+              id="interrupt-ai-btn"
+              className="interrupt-btn" 
+              onClick={onInterrupt}
+              title="Stop AI speech"
+              type="button"
+            >
+              <Square size={12} fill="currentColor" />
+              <span>Stop</span>
+            </button>
+          )}
 
-        <button 
-          id="auto-send-toggle-btn"
-          className={`icon-btn ${autoSend ? 'active' : ''}`}
-          onClick={onToggleAutoSend}
-          type="button"
-          style={{ 
-            color: autoSend ? 'var(--accent-cyan)' : 'var(--text-dim)',
-            borderColor: autoSend ? 'var(--accent-cyan)' : 'var(--border-glass)'
-          }}
-          title={autoSend ? 'Hands-Free VAD Mode: ON' : 'Hands-Free VAD Mode: OFF (Push-to-Talk)'}
-        >
-          <Radio size={18} />
-        </button>
+          <button
+            id="main-mic-btn"
+            className={`mic-button ${isRecording ? 'recording' : ''}`}
+            onClick={handleToggle}
+            type="button"
+            title={isRecording ? 'Click to stop speaking' : 'Click to start speaking'}
+            aria-label={isRecording ? 'Stop microphone' : 'Start microphone'}
+          >
+            <Mic size={22} />
+          </button>
+
+          <button 
+            id="auto-send-toggle-btn"
+            className={`icon-btn ${autoSend ? 'active' : ''}`}
+            onClick={onToggleAutoSend}
+            type="button"
+            style={{ 
+              color: autoSend ? 'var(--accent-emerald)' : 'var(--text-muted)',
+              borderColor: autoSend ? 'rgba(16, 185, 129, 0.4)' : 'var(--border-subtle)',
+              background: autoSend ? 'var(--accent-emerald-subtle)' : 'var(--bg-surface-subtle)'
+            }}
+            title={autoSend ? 'Hands-Free VAD: ON' : 'Hands-Free VAD: OFF'}
+            aria-label="Toggle hands-free mode"
+          >
+            <Radio size={16} />
+          </button>
+        </div>
       </div>
 
-      {/* Right: Quick text input fallback */}
-      <form onSubmit={handleSubmit} style={{ display: 'flex', gap: 6, width: '280px' }}>
-        <input
-          id="text-chat-input"
-          type="text"
-          className="form-input"
-          style={{ flex: 1, padding: '8px 12px', fontSize: '0.82rem' }}
-          placeholder="Type English message..."
-          value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
-        />
-        <button 
-          id="send-text-btn"
-          type="submit" 
-          className="icon-btn" 
-          disabled={!inputText.trim()}
-          title="Send typed message"
-        >
-          <Send size={16} />
-        </button>
-      </form>
-    </div>
+      {/* Text message fallback input */}
+      <div className="controls-right">
+        <form onSubmit={handleSubmit} className="text-input-form">
+          <input
+            id="text-chat-input"
+            type="text"
+            className="text-chat-input"
+            placeholder="Type a message..."
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            aria-label="Text message input"
+          />
+          <button 
+            id="send-text-btn"
+            type="submit" 
+            className="icon-btn send-btn" 
+            disabled={!inputText.trim()}
+            title="Send message"
+            aria-label="Send message"
+            style={{
+              color: inputText.trim() ? '#ffffff' : 'var(--text-disabled)',
+              background: inputText.trim() ? 'var(--primary)' : 'var(--bg-surface-subtle)',
+              borderColor: inputText.trim() ? 'var(--primary)' : 'var(--border-subtle)',
+              opacity: inputText.trim() ? 1 : 0.5
+            }}
+          >
+            <Send size={15} />
+          </button>
+        </form>
+      </div>
+    </footer>
   );
 }
