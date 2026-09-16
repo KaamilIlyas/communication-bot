@@ -1,0 +1,26 @@
+{
+  "name": "FluentAI • Real-Time English Voice Practice",
+  "short_name": "FluentAI",
+  "description": "Practice spoken English naturally with real-time interactive voice conversations.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#090d16",
+  "theme_color": "#090d16",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "32x32",
+      "type": "image/png"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}

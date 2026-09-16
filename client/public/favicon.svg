@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <linearGradient id="fluent-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#4338ca" />
+    </linearGradient>
+    <linearGradient id="glow-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background App Tile -->
+  <rect width="32" height="32" rx="7.5" fill="url(#fluent-grad)" />
+  <rect x="0.5" y="0.5" width="31" height="31" rx="7" fill="none" stroke="rgba(255, 255, 255, 0.22)" stroke-width="1" />
+
+  <!-- Subtle Top Light Sheen -->
+  <rect x="2" y="2" width="28" height="14" rx="5.5" fill="url(#glow-grad)" />
+
+  <!-- Voice Waves (Active Real-Time Speech Pulse) -->
+  <path d="M5.5 12a5.5 5.5 0 0 0 0 5" fill="none" stroke="#c7d2fe" stroke-width="1.8" stroke-linecap="round" />
+  <path d="M26.5 12a5.5 5.5 0 0 1 0 5" fill="none" stroke="#c7d2fe" stroke-width="1.8" stroke-linecap="round" />
+
+  <!-- Microphone Capsule -->
+  <rect x="13" y="6" width="6" height="11" rx="3" fill="#ffffff" />
+
+  <!-- Microphone Cradle -->
+  <path d="M9.5 13.5v0.5a6.5 6.5 0 0 0 13 0v-0.5" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+
+  <!-- Microphone Stand & Base -->
+  <path d="M16 20.5v3.5" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" />
+  <path d="M12.5 24h7" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" />
+</svg>
