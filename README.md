@@ -2,6 +2,8 @@
 
 A real-time voice-to-voice speaking coach and conversational practice bot. Features hands-free Voice Activity Detection (VAD), low-latency audio streaming, and practice scenarios for interviews, exams, and workplace communication.
 
+**Live Demo:** [https://fluentai-bot.vercel.app](https://fluentai-bot.vercel.app/)
+
 Supports both offline local execution (WebSockets + Python workers) and serverless cloud deployment (Vercel + Groq/Azure Edge TTS).
 
 ## Features
