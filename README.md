@@ -56,4 +56,4 @@ Deploy the repository to Vercel and configure the following environment variable
 
 ## License
 
-MIT\n
+MIT
