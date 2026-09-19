@@ -1,116 +1,59 @@
-# FluentAI - Spoken English Practice Bot 🎙️
+# FluentAI
 
-Real-time voice-to-voice conversational partner and English speaking coach. Supports casual English, mock job interviews, IELTS exam preparation, workplace negotiations, and debate practice.
+A real-time voice-to-voice speaking coach and conversational practice bot. Features hands-free Voice Activity Detection (VAD), low-latency audio streaming, and practice scenarios for interviews, exams, and workplace communication.
 
-The app supports two runtime modes: **Local** (runs offline/locally via WebSockets & Python workers) and **Production** (runs serverless on Vercel).
+Supports both offline local execution (WebSockets + Python workers) and serverless cloud deployment (Vercel + Groq/Azure Edge TTS).
 
----
+## Features
 
-## ⚖️ Local vs. Production Differences
+- **Practice Scenarios**: Casual conversation, software engineering mock interviews (React, Node, MERN), IELTS 3-part exam preparation with score feedback, workplace negotiations, and debate practice.
+- **Hands-Free Conversation**: Voice Activity Detection (VAD) automatically detects when you finish speaking and starts generation.
+- **Dual Runtime Architecture**:
+  - **Local Mode**: WebSockets (`ws://localhost:3001`), local Faster-Whisper (`base.en`), and Kokoro ONNX neural TTS for low-latency offline voice synthesis.
+  - **Production Mode**: Serverless HTTP/SSE streaming on Vercel using Groq Whisper and Azure Edge TTS.
 
-| Feature | 🖥️ Local Mode | ☁️ Production (Vercel) |
-|---|---|---|
-| **Networking** | Full-duplex WebSocket (`ws://localhost:3001`) | Serverless HTTP + SSE Streaming (`/api/*`) |
-| **STT (Speech-to-Text)** | **Faster-Whisper** (`base.en`) via local Python daemon | **Groq Whisper** (`whisper-large-v3`) or OpenAI Whisper |
-| **TTS (Text-to-Speech)** | **Kokoro-v1.0** multi-threaded ONNX neural voices | **Azure Edge Neural TTS** (`msedge-tts`) via `/api/tts` |
-| **LLM Engine** | **OpenRouter** or **Ollama** (`gemma3:4b`) with auto-failover | **OpenRouter** or **Groq Llama 3.3** via SSE stream |
-| **Default Voice** | Sarah (`af_sarah`) | Sarah (`en-US-AvaNeural`) |
-| **Setup Required** | Python 3.10+, Node 18+, downloaded ONNX models | Just environment variables on Vercel |
+## Tech Stack
 
----
+- **Frontend**: React 18, Vite, Web Audio API, Tailwind CSS
+- **Backend**: Node.js, Express, WebSockets, Python daemons (local mode)
+- **Speech & AI**: Faster-Whisper / Groq Whisper, Kokoro TTS / Azure Edge TTS, OpenRouter / Ollama
 
-## 🎯 Practice Modes
+## Getting Started
 
-1. **Casual Conversation**: Everyday spoken English with natural follow-up questions.
-2. **Job Interview**: Technical & behavioral mock interviews (MERN, React, Node.js, FYP defense, custom roles).
-3. **IELTS Speaking**: 3-part exam simulation with Band score feedback (Band 5.0 – 9.0).
-4. **Workplace & Negotiation**: Salary discussions, stakeholder pitches, sprint standups, conflict resolution.
-5. **Debate Partner**: Oxford-style opponent that takes opposing viewpoints to sharpen rhetoric.
+### Prerequisites
 
----
+- Node.js 18+
+- Python 3.10+ (for local STT/TTS workers)
 
-## 🖥️ Local Setup & Run
+### Local Setup
 
-### 1. Prerequisites
-- **Node.js** 18+
-- **Python** 3.10+
-- *(Optional)* [Ollama](https://ollama.com) if running models offline without an OpenRouter key:
-  ```bash
-  ollama pull gemma3:4b
-  ```
+1. Run the initialization script (sets up Python virtual environment and downloads ONNX voice models):
+   ```bash
+   ./setup.sh
+   ```
 
-### 2. Install & Download Models
-Run the setup script from the project root:
-```bash
-./setup.sh
-```
-This initializes `venv/`, downloads required ONNX voice models (~300MB), and installs npm packages for both frontend and backend.
+2. Create a `.env` file in the root directory:
+   ```env
+   PORT=3001
+   OPENROUTER_API_KEY=your_openrouter_api_key
+   # Optional offline fallback:
+   OLLAMA_URL=http://localhost:11434
+   OLLAMA_MODEL=gemma3:4b
+   ```
 
-### 3. Local Environment (`.env`)
-Create a `.env` file in the project root:
-```env
-PORT=3001
-OPENROUTER_API_KEY="sk-or-v1-your-key-here"
-OPENROUTER_MODEL="nex-agi/nex-n2.5-mini:free"
-OLLAMA_URL="http://localhost:11434"
-OLLAMA_MODEL="gemma3:4b"
-```
-> *If `OPENROUTER_API_KEY` is provided, it uses OpenRouter. If the key is omitted or quota is hit, it automatically falls back to local Ollama.*
+3. Start the application:
+   ```bash
+   ./run.sh
+   ```
+   - Client: `http://localhost:5173`
+   - Server: `http://localhost:3001`
 
-### 4. Start Locally
-```bash
-./run.sh
-```
-- **Web App**: `http://localhost:5173`
-- **Server**: `http://localhost:3001`
+### Vercel Deployment
 
----
+Deploy the repository to Vercel and configure the following environment variables:
+- `OPENROUTER_API_KEY`: API key for LLM chat completions
+- `GROQ_API_KEY`: API key for Whisper speech-to-text transcription
 
-## ☁️ Production Deployment (Vercel)
+## License
 
-The codebase includes serverless handlers in `/api` so it can be deployed on Vercel without needing Python or Docker:
-
-### 1. Environment Variables on Vercel
-Add the following in your **Vercel Project Settings ➔ Environment Variables**:
-
-| Variable | Required | Description |
-|---|---|---|
-| `OPENROUTER_API_KEY` | **Yes** | API key for OpenRouter LLM completions (`/api/chat`) |
-| `GROQ_API_KEY` | **Yes** | API key for fast Whisper transcription (`/api/transcribe`) |
-| `OPENROUTER_MODEL` | No | Model ID (defaults to `nex-agi/nex-n2.5-mini:free`) |
-| `OPENAI_API_KEY` | No | Fallback for Whisper transcription if Groq is unavailable |
-
-### 2. Deploy
-Push to GitHub and connect the repository to Vercel. Vercel automatically runs:
-```bash
-cd client && npm install && npm run build
-```
-and routes requests:
-- Frontend: Vite SPA static files
-- Backend: `/api/chat`, `/api/transcribe`, `/api/tts`
-
----
-
-## 📁 Project Structure
-
-```
-├── client/                 # React 18 + Vite frontend
-│   ├── src/
-│   │   ├── components/     # UI (Controls, Visualizer, Modals)
-│   │   ├── hooks/          # useAudioRecorder, useAudioPlayer, useWebSocket
-│   │   └── App.jsx         # Dual-mode controller (WebSocket / Serverless)
-├── server/                 # Local Node.js backend
-│   ├── server.js           # Express + WebSocket server
-│   ├── config.js           # Configuration, voice personas & system prompts
-│   ├── services/           # Whisper, Kokoro/Piper & Ollama services
-│   └── scripts/            # Python daemons (stt_worker.py, tts_worker.py)
-├── api/                    # Vercel serverless functions (chat, transcribe, tts)
-├── models/                 # Local ONNX models (Kokoro TTS, Piper)
-├── run.sh                  # One-command local startup
-└── setup.sh                # Local environment initialization script
-```
-
----
-
-## 📄 License
-MIT
+MIT\n
