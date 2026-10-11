@@ -1,4 +1,4 @@
-# 📘 FluentAI: Complete Project Architecture & Tools Guide
+# 📘 TalkPal: Complete Project Architecture & Tools Guide
 
 > **Purpose of this document**: A simple, clear, 1–2 page reference guide explaining how this conversational voice AI bot works under the hood, what tools and technologies are used, and how each tool operates. Save this file to review before interviews or project demos.
 
@@ -6,7 +6,7 @@
 
 ## 1. What is this Project?
 
-**FluentAI** is a real-time, voice-to-voice AI English speaking coach. Instead of typing into a chatbot like ChatGPT and reading paragraphs of text, you speak into your microphone and the AI responds back in real-time with spoken human voice.
+**TalkPal** is a real-time, voice-to-voice AI English speaking coach. Instead of typing into a chatbot like ChatGPT and reading paragraphs of text, you speak into your microphone and the AI responds back in real-time with spoken human voice.
 
 It supports two runtime modes:
 1. **Local Mode**: Runs 100% on your laptop using Python background workers and local ONNX AI models (private, no internet required).

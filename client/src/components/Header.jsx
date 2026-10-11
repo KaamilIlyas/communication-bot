@@ -61,11 +61,11 @@ export function Header({
     <header className="header">
       <div className="header-brand-row">
         <div className="brand-section">
-          <div className="logo-badge" title="FluentAI Voice Assistant">
+          <div className="logo-badge" title="TalkPal Voice Assistant">
             <Mic size={18} />
           </div>
           <div className="brand-text-container">
-            <h1 className="brand-title">FluentAI</h1>
+            <h1 className="brand-title">TalkPal</h1>
             <div className="brand-subtitle">
               <span>{currentModeObj.title}</span>
               <span>•</span>

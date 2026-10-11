@@ -111,8 +111,8 @@ export default async function handler(req, res) {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': authHeader,
-        'HTTP-Referer': 'https://fluentai-voice-bot.vercel.app',
-        'X-Title': 'FluentAI Spoken English Bot'
+        'HTTP-Referer': 'https://TalkPal-voice-bot.vercel.app',
+        'X-Title': 'TalkPal Spoken English Bot'
       },
       body: JSON.stringify({
         model,
